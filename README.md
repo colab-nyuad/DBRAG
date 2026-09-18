@@ -1,6 +1,6 @@
 # DBRAG
 
-DBRAG is a pipeline for retrieving, ranking, and question answering on that requires aggregating information from single or multiple tables.
+DBRAG is a pipeline for retrieving, ranking, and question answering on that requires aggregating information from several tables.
 
 ## Setup and Installation
 
@@ -71,62 +71,11 @@ This command outputs a `reader/` folder with:
 - `outputs/`
 - `evaluation/`
 
-## Running the JAR Baseline
-
-The JAR scripts use paths relative to the `jar/` directory and expect the JAR-formatted
-Spider files under `jar/data/{dataset}/`, including:
-
-- `dev.json`
-- `dev_tables.json`
-- `dev_database/`
-- `db_id_to_table_name_map.json`
-
-The evaluator also requires the processed validation file at
-`data/{dataset}/validation_data.pkl`.
-
-The prediction file must be a JSON list with one list of table names per question. To
-evaluate predictions at `k=5` for spider, run this command from the repository root:
-
-```bash
-python3 jar/jar_eval.py \
-  --pred_path jar/data/spider/path/to/jar_predictions.json \
-  --val_data_path data/spider/validation_data.pkl \
-  --db_map_path jar/data/spider/db_id_to_table_name_map.json \
-  --output_dir jar/evaluation \
-  --k 5
-```
-
-The metrics are printed to the terminal and saved to:
-`jar/evaluation/evaluation_results_jar_predictions.json`.
-
-### Generating JAR Predictionss
-
-1. Configure the dataset, model, and paths in `jar/contriever.py` (or
-  `jar/openai_embed.py` / `jar/tapas.py`) and run the selected script to generate
-	embeddings and scores.
-2. Configure the corresponding settings and uncomment the prediction-generation call
-  in `jar/ilp.py`. From the `jar/` directory, run one process per partition, for
-  example:
-
-```bash
-cd jar
-python3 ilp.py --partition 0
-```
-
-3. Run the merge step in `jar/ilp.py` after all partitions finish, then evaluate the
-  merged prediction file with `jar/jar_eval.py` from the repository root. The
-  evaluator's explicit paths in the command above avoid relying on its defaults.
-
-The ILP stage requires the compatibility files referenced by `jar/compatibility.py`
-(`dev_jaccard.json`, `dev_uniqueness.json`, `semantic_col_sim.json`, and
-`exact_col_sim.json`) before prediction generation can run.
-
 ## Notes
 - Ensure all dependencies are installed before running any script.
 - The `.env` file is required for API authentication.
 - Make sure to download or generate the required data before running the pipeline.
-- The JAR scripts currently contain dataset- and model-specific settings in their
-  `__main__` blocks; update those settings before running a different dataset or model.
+- Evaluation results are written to the `evaluation/` subfolder for each pipeline stage.
 
 ## License
 This project is licensed under the MIT License.
