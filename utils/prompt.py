@@ -5,68 +5,28 @@ Example output: [id1, id2, id3, id4, id5]
 Question: {question}
 Candidate Tables: {candidate_tables}"""
 
-# detailed_table_ranking_prompt= """Given a question and a set of candidate tables, think step by step and rank tables by relevance to the given question while also considering their potential to be joined with others to enhance the completeness of the answer. Each table has a table_id, table_name, columns, and some rows(optional).
+detailed_table_ranking_prompt= """Given a question and a set of candidate tables, think step by step and rank tables by relevance to the given question while also considering their potential to be joined with others to enhance the completeness of the answer. Each table has a table_id, table_name, columns, and some rows(optional).
 
-# - Question -  
-# {question}
+- Question -  
+{question}
 
-# - Candidate Tables -  
-# {candidate_tables}
-
-# - Considerations for Ranking -
-# 1. Direct Relevance: Does the table contain column names or row values(if available) that strongly align with the terms/entities in the question?
-# 2. Joinability: Can the table be meaningfully joined with others based on shared column names or overlapping row values (if available)?
-# 3. Coverage & Completeness: Does the table alone or when joined with others provide a comprehensive answer to the question?
-
-# - Requirements -
-# Always think step by step and consider both standalone relevance and join potential.
-
-# - Response Format -
-# Always respond with a list of exactly 5 unique table_ids in descending order of relevance to the question.Do not include any explanation other information in the response, just a list of table ids!
-# e.g. [table_id1, table_id2, table_id3, table_id4, table_id5]"""
-
-
-# detailed_llama_table_ranking_prompt = """Given a question and a set of candidate tables, evaluate and rank the tables based on the following criteria.
-
-# 1. Direct Relevance: Does the table’s column names or row values match key terms or entities from the question?
-# 2. Joinability: Can the table be meaningfully joined with others based on shared column names or overlapping row values?
-# 3. Coverage: Can the table, alone or when combined with joinable tables, provide a complete answer?
-
-# Use a weighted scoring system that considers both standalone relevance and join potential. Think step-by-step through your evaluation and then rank the tables in descending order of overall score.
-
-# **Input**
-# Question: {question}
-# Candidate Tables:
-# {candidate_tables}
-
-# **Output**
-# Always return exactly 5 unique table_ids in a list (e.g., [4, 9, 10, 20, 1]) without any additional explanation or information."""
-
-# detailed_table_ranking_prompt = """Given a question and a set of candidate tables, think step by step, evaluate and rank tables based on direct relevance to the question and their potential to be joined with others to enhance the completeness of the answer. Each table has a table_id, table_name, columns, and some rows (optional).
-
-# Use a weighted scoring system that considers both standalone relevance to the question and join potential. Think step-by-step through your evaluation and then rank the tables in descending order of overall score.
-
-# **Input**
-# Question: {question}
-# Candidate Tables:
-# {candidate_tables}
-
-# **Output**
-# Always return exactly 5 unique table_id in a list (e.g., [4, 9, 10, 20, 1]) without any additional explanation or information.Do not include any explanation or additional information in the response, just a list of top ranked table ids!"""
-
-detailed_table_ranking_prompt = """Given a question and a set of candidate tables, analyze and rank tables based on:  
-1. Direct relevance to the question.  
-2. Potential for joining with other tables to enhance completeness.
-
-- Response Format - 
-[id1, id2, id3, id4, id5] 
-
-- Input -  
-Question: {question}  
-Candidate Tables:  
+- Candidate Tables -  
 {candidate_tables}
 
-Always respond with a list of 5 unique table IDs in descending order of relevance to the question.Do not include any explanation or additional information in the response, just a list of top ranked table IDs!"""
+- Considerations for Ranking -
+1. Direct Relevance: Does the table contain column names or row values(if available) that strongly align with the terms/entities in the question?
+2. Joinability: Can the table be meaningfully joined with others based on shared column names or overlapping row values (if available)?
+3. Coverage & Completeness: Does the table alone or when joined with others provide a comprehensive answer to the question?
+
+- Requirements -
+1. Always return exactly {M} unique table_ids
+2. Order from most to least relevant
+3. Consider both standalone value and join potential
+4. Prioritize direct relevance over theoretical join possibilities
+
+- Response Format -
+Always respond with a list of exactly 5 unique table_ids in descending order of relevance to the question.Do not include any explanation other information in the response, just a list of table ids!
+e.g. [table_id1, table_id2, table_id3, table_id4, table_id5]"""
 
 spider_prompt_without_selection = """You are working with {num_dfs} pandas dataframes in Python named df1, df2, etc. Think step by step and use the tools below to answer the question posed to you by performing a series of dataframe manipulating actions. Always start by looking at all the dataframes. Then, create a chain of actions and execute it on the dataframes with the execute_dataframe_code tool. Finally, use the final_structured_output tool in your last call to return the final dataframe with sql-style column names.
 
