@@ -1,6 +1,6 @@
 # DBRAG
 
-DBRAG is a pipeline for retrieving, ranking, and question answering on that requires aggregating information from several tables.
+DBRAG is a pipeline for retrieving, ranking, and question answering on that requires aggregating information from multiple tables.
 
 ## Setup and Installation
 
