@@ -4,17 +4,19 @@ import numpy as np
 import pandas as pd
 import os, tiktoken
 from abc import ABC, abstractmethod
-from typing import List, Dict, Tuple, Any, Union
+from typing import List, Dict
 from tqdm import tqdm
 import warnings
 from collections import defaultdict
 from transformers import AutoTokenizer, AutoModel
+from dotenv import load_dotenv
 from openai import OpenAI
 import torch.nn as nn
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import TapasTokenizer, TapasModel
 import json
-from utils.pickle_utils import load_pickle_file, save_as_pickle
+from utils.pickle_utils import load_pickle_file
+
+load_dotenv()
 
 warnings.filterwarnings('ignore')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
@@ -482,7 +484,7 @@ def main():
                        help='Directory to save embeddings')
     parser.add_argument('--eval_dir', type=str, default='./retriever/evaluation',
                        help='Directory to save evaluation results')
-    parser.add_argument('--checkpoint_path', type=str, default='./jar/data/spider/tapas/checkpoint.pt',
+    parser.add_argument('--checkpoint_path', type=str, default='./tapas/checkpoint.pt',
                        help='Path to TAPAS DTR checkpoint')
     parser.add_argument('--lm', type=str, default='tapas-large',
                        help='TAPAS language model type')

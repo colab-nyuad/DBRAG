@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import List, Union, Optional
 from openai import OpenAI
 from tqdm import tqdm
+from pathlib import Path
 
 @dataclass
 class OpenAIConfig:
@@ -12,7 +13,7 @@ class OpenAIConfig:
     model: str = "gpt-3.5-turbo"
     max_retries: int = 2
     initial_temperature: float = 0.5
-    log_file: str = "./run_logs/openai_client_errors.log"
+    log_file: str = "./run_logs/openai_client_errors.log" 
 
 class ResponseValidationError(ValueError):
     """Custom exception for response validation errors"""
@@ -34,6 +35,7 @@ class OpenAIClient:
 
     def _setup_logging(self) -> None:
         """Configure logging settings"""
+        Path(self.config.log_file).parent.mkdir(parents=True, exist_ok=True)
         logging.basicConfig(
             filename=self.config.log_file,
             level=logging.ERROR,

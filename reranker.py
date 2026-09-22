@@ -2,9 +2,12 @@ import argparse
 import numpy as np
 import json
 import os
+import multiprocessing
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+from dotenv import load_dotenv
 from collections import defaultdict
 from utils.prompt import detailed_table_ranking_prompt
 from utils.gpt import OpenAIClient
@@ -18,12 +21,13 @@ from utils.table_utils import (
     convert_table_contents_to_dfs,
 )
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from pydantic import BaseModel, Field, field_validator
 
-from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
-import pickle, ast
+from openai import RateLimitError
+from tenacity import retry, retry_if_exception_type, wait_random_exponential, stop_after_attempt
+
+load_dotenv()
 
 # Global variable for the row database.
 row_db = None
@@ -225,9 +229,11 @@ class RelevantRowsReranker(BaseReranker):
         total_queries = len(self.get_questions())
         candidate_tables = [None] * total_queries
 
-        # Use ProcessPoolExecutor. With the "fork" method, children inherit the global row_db.
+        # Use ProcessPoolExecutor with the "fork" context so children inherit the global row_db.
+        # (macOS/Windows default to "spawn", which would leave row_db as None in workers.)
+        fork_context = multiprocessing.get_context("fork")
         with tqdm(total=total_queries, desc="Processing queries") as progress_bar:
-            with ProcessPoolExecutor(max_workers=50) as executor:
+            with ProcessPoolExecutor(max_workers=8, mp_context=fork_context) as executor:
                 futures = []
                 for idx in range(total_queries):
                     futures.append(
@@ -274,13 +280,6 @@ def main():
     parser.add_argument('--num_candidates', type=int, default=10, choices=[10, 20, 30, 40, 50], help='Number of candidate tables to use')
     
     args = parser.parse_args()
-    
-    # # Force the use of the "fork" start method (Unix only).
-    # try:
-    #     import multiprocessing
-    #     multiprocessing.set_start_method("fork", force=True)
-    # except RuntimeError:
-    #     pass  # Start method already set.
 
     # If using the 'relevant' ranking method, load the huge FAISS index here once.
     if args.ranking_method == "relevant":
@@ -291,8 +290,33 @@ def main():
             row_db = FAISS.load_local(row_db_path, embedder, allow_dangerous_deserialization=True)
         else:
             # Build row corpus and create the FAISS index.
-            row_corpus = build_row_corpus(table_contents)
-            row_db = FAISS.from_documents(row_corpus, embedder)
+            table_contents = load_pickle_file(f"./data/{args.dataset}/table_contents.pkl")
+            table_dfs = convert_table_contents_to_dfs(table_contents)
+            row_corpus = build_row_corpus(table_dfs)
+
+            batch_size = 500
+            max_workers = 4
+            batches = [row_corpus[i:i + batch_size] for i in range(0, len(row_corpus), batch_size)]
+
+            @retry(
+                retry=retry_if_exception_type(RateLimitError),
+                wait=wait_random_exponential(min=1, max=60),
+                stop=stop_after_attempt(8),
+            )
+            def embed_batch(batch):
+                texts = [doc.page_content for doc in batch]
+                vectors = embedder.embed_documents(texts)
+                return list(zip(texts, vectors)), [doc.metadata for doc in batch]
+
+            text_embeddings, metadatas = [], []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(embed_batch, batch) for batch in batches]
+                for future in tqdm(as_completed(futures), total=len(futures), desc='Embedding row corpus'):
+                    batch_text_embeddings, batch_metadatas = future.result()
+                    text_embeddings.extend(batch_text_embeddings)
+                    metadatas.extend(batch_metadatas)
+
+            row_db = FAISS.from_embeddings(text_embeddings, embedder, metadatas=metadatas)
             row_db.save_local(row_db_path)
         print("Global row_db loaded successfully.")
 
@@ -309,6 +333,7 @@ def main():
         )
     }
     
+    # Initialize the re-ranker.
     reranker = rerankers[args.ranking_method]()
     
     # Perform re-ranking.

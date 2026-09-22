@@ -27,7 +27,7 @@ class EvaluationResults:
     grouped_by_predicate: Dict[int, GroupMetrics]
 
 class BaseTableEvaluator(ABC):
-    def __init__(self, dataset_name: str, reader_method: str, method: str, output_dir: str, truncate: bool = False, with_column_names: bool = False):
+    def __init__(self, dataset_name: str, reader_method: str, method: str, output_dir: str, truncate: bool = True, with_column_names: bool = False):
         self.dataset_name = dataset_name
         self.method = method
         self.reader_method = reader_method

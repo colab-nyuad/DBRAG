@@ -5,7 +5,14 @@ DBRAG is a pipeline for retrieving, ranking, and question answering on that requ
 ## Setup and Installation
 
 ### 1. Create a Conda Environment and Install Requirements
-Ensure you have Python installed, then install the required dependencies:
+Create a Conda environment with Python 3.11:
+
+```bash
+conda create -n dbrag python=3.11
+conda activate dbrag
+```
+
+Then install the dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -38,6 +45,10 @@ This command generates a `data/` folder with subfolders:
 python3 retriever.py --model 'model_name' --dataset 'dataset_name'
 ```
 Supported models: `openai`, `contriever`, `tapas`
+
+Contriever and Tapas are both baseline we compare against for retrieval. The OpenAI model is used for the DB-RAG pipeline.
+
+The Tapas model checkpoint can be found and downloaded [here](https://drive.google.com/drive/u/3/folders/1gtPsimiRhxUXauIh8sngfNNs3o_xoMim). Place it in the `./tapas/` directory as the default path for the checkpoint is `./tapas/checkpoint.pt`.If you want to use a different path, you can specify it with the `--checkpoint_path` argument.
 
 This command generates a `retriever/` folder with two subfolders:
 - `outputs/`
@@ -72,11 +83,11 @@ This command outputs a `reader/` folder with:
 - `evaluation/`
 
 ## Notes
+- To avoid running into issues with requirements installation, ensure you are on a Linux or MacOS(x86_64) machine.
+- If you encounter an issue when processing the dataset, it might be the Hugging Face `datasets` cache. Try clearing it before preprocessing the dataset again.
 - Ensure all dependencies are installed before running any script.
+- Increase and decrease the `--max_workers` argument based on your system's capabilities to optimize performance.
 - The `.env` file is required for API authentication.
 - Make sure to download or generate the required data before running the pipeline.
 - Evaluation results are written to the `evaluation/` subfolder for each pipeline stage.
-
-## License
-This project is licensed under the MIT License.
 

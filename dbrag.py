@@ -1,17 +1,17 @@
 import argparse
 import os
-import pickle
-import time
 import warnings
 import ast
 import json
 import traceback
+import threading
 from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence, Union, Annotated, TypedDict
+from typing import Optional, Sequence, Union, Annotated, TypedDict
 import operator, logging
 import numpy as np
+from dotenv import load_dotenv
 
 import pandas as pd
 import tiktoken
@@ -20,11 +20,14 @@ from tqdm import tqdm
 # langchain
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, FunctionMessage, HumanMessage
+from openai import RateLimitError
+from tenacity import retry, retry_if_exception_type, wait_random_exponential, stop_after_attempt
 from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_function
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.vectorstores import FAISS
-from langchain import hub
+import faiss
+faiss.omp_set_num_threads(1)
 
 # langgraph
 from langgraph.prebuilt import ToolExecutor, ToolInvocation
@@ -47,6 +50,8 @@ from utils.dbrag_utils import (
 from utils.table_utils import infer_dtype
 from QAEvaluator import MultiTableRAGEval
 
+load_dotenv()
+
 warnings.filterwarnings('ignore')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
@@ -58,23 +63,51 @@ logging.basicConfig(
         filemode="w"
 )
 
-# Global variables for dataframes and for the row_db (used by some retrieval methods)
 row_db = None
 
-df_list=[]
+table_row_index = {}
+
+
+def build_table_row_index(row_db):
+    """
+    Reconstruct per-table (vectors, Document list) arrays from the already
+    loaded FAISS index, once. Assumes IndexFlatL2 (squared L2 distance,
+    ascending = most similar) — confirm with type(row_db.index) if unsure;
+    this matches the reranker.py index built from the same rowdb path.
+    """
+    total_docs = row_db.index.ntotal
+    all_vectors = row_db.index.reconstruct_n(0, total_docs)
+
+    grouped = defaultdict(lambda: {"vectors": [], "docs": []})
+    for i in range(total_docs):
+        doc_id = row_db.index_to_docstore_id[i]
+        doc = row_db.docstore.search(doc_id)
+        table_id = doc.metadata["table_index"]
+        grouped[table_id]["vectors"].append(all_vectors[i])
+        grouped[table_id]["docs"].append(doc)
+
+    return {
+        table_id: (np.stack(v["vectors"]), v["docs"])
+        for table_id, v in grouped.items()
+    }
+
+_thread_local = threading.local()
+
+
 def create_df_list(table_ids, table_contents):
-    """Create list of dataframes from table_contents"""
+    """Create a list of dataframes from table_contents for one question."""
+    local_df_list = []
     for tid in table_ids:
         columns = table_contents[tid]['columns']
         data = table_contents[tid]['data']
         df = infer_dtype(pd.DataFrame(data, columns=columns))
-        df_list.append(df)
+        local_df_list.append(df)
+    return local_df_list
 
-df_dic = {}
-def create_df_dic(table_ids):
-    """Create dictionary of dataframes for evaluation"""
-    for i in range(len(table_ids)):
-        df_dic[f"df{i + 1}"] = df_list[i]
+
+def create_df_dic(df_list_local):
+    """Create a dict of dataframes (df1, df2, ...) for one question."""
+    return {f"df{i + 1}": df for i, df in enumerate(df_list_local)}
 
 
 def get_action(actions: str) -> str:
@@ -116,9 +149,14 @@ def execute_dataframe_code(
         if not is_safe:
             return f"Error: {error_message}", action, None
 
+        df_dic = getattr(_thread_local, "df_dic", None)
+        if df_dic is None:
+            print(
+                "df_dic missing for this thread — tool execution ran on a different thread than process_question."
+            )
         inter = eval(action, {"inter": inter, "df_dic": df_dic})
         if isinstance(inter, pd.DataFrame):
-            intermediate = inter.head(70).to_markdown()
+            intermediate = inter.head(50).to_markdown()
         else:
             intermediate = inter
         return intermediate, action, inter
@@ -189,11 +227,21 @@ def get_retrieved_data_schema_random(query_embedding, table_names, table_ids, to
 
 
 def get_retrieved_data_schema_relevant(query_embedding, table_names,  table_ids, total_docs, functions_and_input):
-    global row_db
-    docs = row_db.similarity_search_by_vector(query_embedding, k=total_docs)
+    # Search only this question's candidate tables (table_ids) instead of
+    # ranking the entire corpus (which was the actual source of the slowness
+    # you saw — same root cause as reranker.py's FAISS search).
+    global table_row_index
+    query_vec = np.asarray(query_embedding, dtype=np.float32)
+
     table_docs = defaultdict(list)
-    for doc in docs:
-        table_docs[doc.metadata["table_index"]].append(doc)
+    for table_id in table_ids:
+        if table_id not in table_row_index:
+            continue
+        vectors, docs = table_row_index[table_id]
+        dists = np.sum((vectors - query_vec) ** 2, axis=1)
+        order = np.argsort(dists)
+        table_docs[table_id] = [docs[i] for i in order]
+
     return build_table_from_retrieved_row_values(
         table_docs,
         table_names,
@@ -221,6 +269,11 @@ def define_graph_cycles(model, tool_executor):
         last_message = messages[-1]
         return "continue" if "function_call" in last_message.additional_kwargs else "end"
 
+    @retry(
+        retry=retry_if_exception_type(RateLimitError),
+        wait=wait_random_exponential(min=1, max=60),
+        stop=stop_after_attempt(8),
+    )
     def call_model(state):
         response = model.invoke(state)
         return {"messages": [response]}
@@ -310,27 +363,25 @@ def process_question(i: int, data: dict, total_docs: int, functions_and_input: d
     Process a single question. This resets the global dataframes,
     creates the tool executor, sets up the prompt, and executes the workflow.
     """
-    global df_dic, df_list
-    df_dic = {}
-    df_list = []
+    local_ctx = dict(functions_and_input)
 
     tools = [execute_dataframe_code, final_structured_output]
     tool_executor = ToolExecutor(tools)
     functions = [convert_to_openai_function(t) for t in tools]
 
     # Setup dataframes
-    table_ids = functions_and_input['table_ids_list'][i] if not functions_and_input['use_gt_tab_ids'] else data['table_ids']
-    table_names = [] if functions_and_input['dataset'] == 'spider' else functions_and_input['table_names']
-    create_df_list(table_ids, functions_and_input['table_contents'])
-    create_df_dic(table_ids)
-    functions_and_input['df_list'] = df_list
+    table_ids = local_ctx['table_ids_list'][i] if not local_ctx['use_gt_tab_ids'] else data['table_ids']
+    table_names = [] if local_ctx['dataset'] == 'spider' else local_ctx['table_names']
+    df_list = create_df_list(table_ids, local_ctx['table_contents'])
+    _thread_local.df_dic = create_df_dic(df_list)
+    local_ctx['df_list'] = df_list
 
     # Get retrieved data (using the appropriate retrieval function)
-    retrieved_data_str = functions_and_input['get_retrieved_data'](functions_and_input['query_embeddings'][i], table_names, table_ids, total_docs, functions_and_input)
+    retrieved_data_str = local_ctx['get_retrieved_data'](local_ctx['query_embeddings'][i], table_names, table_ids, total_docs, local_ctx)
 
     # Create prompt (using langchain’s ChatPromptTemplate)
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", functions_and_input['prompt']),
+        ("system", local_ctx['prompt']),
         MessagesPlaceholder(variable_name="messages"),
     ])
     prompt_template = prompt_template.partial(num_dfs=len(df_list))
@@ -338,7 +389,7 @@ def process_question(i: int, data: dict, total_docs: int, functions_and_input: d
     prompt_template = prompt_template.partial(retrieved_data=retrieved_data_str)
 
     text_prompt = prompt_template.format(messages=[])
-    tokenized_prompt = functions_and_input['tokenizer'].encode(text_prompt)
+    tokenized_prompt = local_ctx['tokenizer'].encode(text_prompt)
     if len(tokenized_prompt) > 16385:
         return i, {
             "question": data["question"],
@@ -348,7 +399,7 @@ def process_question(i: int, data: dict, total_docs: int, functions_and_input: d
             "df_names": []
         }, "Prompt too long"
 
-    model = prompt_template | ChatOpenAI(model=functions_and_input['model'], temperature=0.8).bind_functions(functions)
+    model = prompt_template | ChatOpenAI(model=local_ctx['model'], temperature=0.8).bind_functions(functions)
     call_model, call_tool, should_continue = define_graph_cycles(model, tool_executor)
     app = create_workflow(call_model, call_tool, should_continue)
 
@@ -414,7 +465,7 @@ def process_all_data(functions_and_input: dict, batch_size: int, sc: int, max_wo
             end_idx = min((batch_idx + 1) * batch_size, len(functions_and_input['val_data']))
             batch_data = functions_and_input['val_data'][start_idx:end_idx]
 
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(process_question, i, data, total_docs, functions_and_input): i
                     for i, data in enumerate(batch_data, start=start_idx)
@@ -507,7 +558,7 @@ def parse_arguments():
     parser.add_argument('--k', type=int, default=2, help='Number of rows for random and relevant methods')
     parser.add_argument('--batch_size', type=int, default=100, help='Batch size')
     parser.add_argument('--sc', type=int, default=5, help='Number of samples per question(self-consistency)')
-    parser.add_argument('--max_workers', type=int, default=50, help='Maximum number of workers')
+    parser.add_argument('--max_workers', type=int, default=10, help='Maximum number of workers')
     parser.add_argument('--use_gt_tab_ids', action='store_true', help='Use ground truth table ids')
     return parser.parse_args()
 
@@ -547,6 +598,8 @@ def main():
             OpenAIEmbeddings(model='text-embedding-3-small'),
             allow_dangerous_deserialization=True
         )
+        global table_row_index
+        table_row_index = build_table_row_index(row_db)
         functions_and_input['get_retrieved_data'] = get_retrieved_data_schema_relevant 
         functions_and_input['get_total_docs'] = get_total_docs_schema_relevant
 

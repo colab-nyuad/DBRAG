@@ -1,13 +1,13 @@
 import pandas as pd
-from datasets import load_dataset, dataset_dict
+from datasets import load_dataset
 import json
 import os
 from collections import Counter, defaultdict
 from tqdm import tqdm
 import argparse
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Set, Any
-from utils.pickle_utils import load_pickle_file, save_as_pickle
+from typing import Dict, List, Tuple, Any
+from utils.pickle_utils import save_as_pickle
 from utils.table_utils import replace_with_table_name
 
 class BaseTabQA(ABC):
@@ -191,7 +191,7 @@ class AtisTabQA(BaseTabQA):
     
     def load_dataset(self) -> None:
         """Load ATIS dataset."""
-        self.dataset = load_dataset(f'vaishali/{self.dataset_name}-tableQA')
+        self.dataset = load_dataset(f'princeampofo/{self.dataset_name}-tableQA')
     
     def process_dataset(self, generate_stats: bool = False) -> Tuple:
         """Process ATIS dataset - same format as Spider."""
@@ -237,7 +237,7 @@ class GeoTabQA(BaseTabQA):
     
     def load_dataset(self) -> None:
         """Load GeoQuery dataset."""
-        self.dataset = load_dataset(f'vaishali/{self.dataset_name}-tableQA')
+        self.dataset = load_dataset(f'princeampofo/{self.dataset_name}-tableQA')
     
     def process_dataset(self, generate_stats: bool = False) -> Tuple:
         """Process GeoQuery dataset - same format as Spider."""

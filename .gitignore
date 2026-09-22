@@ -24,3 +24,6 @@ full_rank.pkl
 evaluation
 dbrag_openai.py
 test.ipynb
+tapas
+requirements-mac.txt
+.vscode

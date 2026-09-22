@@ -19,7 +19,7 @@ detailed_table_ranking_prompt= """Given a question and a set of candidate tables
 3. Coverage & Completeness: Does the table alone or when joined with others provide a comprehensive answer to the question?
 
 - Requirements -
-1. Always return exactly {M} unique table_ids
+1. Always return exactly 5 unique table_ids
 2. Order from most to least relevant
 3. Consider both standalone value and join potential
 4. Prioritize direct relevance over theoretical join possibilities
