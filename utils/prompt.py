@@ -25,8 +25,7 @@ detailed_table_ranking_prompt= """Given a question and a set of candidate tables
 4. Prioritize direct relevance over theoretical join possibilities
 
 - Response Format -
-Always respond with a list of exactly 5 unique table_ids in descending order of relevance to the question.Do not include any explanation other information in the response, just a list of table ids!
-e.g. [table_id1, table_id2, table_id3, table_id4, table_id5]"""
+[table_id1, table_id2, table_id3, table_id4, table_id5]"""
 
 spider_prompt_without_selection = """You are working with {num_dfs} pandas dataframes in Python named df1, df2, etc. Think step by step and use the tools below to answer the question posed to you by performing a series of dataframe manipulating actions. Always start by looking at all the dataframes. Then, create a chain of actions and execute it on the dataframes with the execute_dataframe_code tool. Finally, use the final_structured_output tool in your last call to return the final dataframe with sql-style column names.
 
@@ -46,17 +45,9 @@ Logic to create chain for: Join dataframe(s) if necessary, then select the creat
 Example: What are the names of the states where at least 3 heads were born?
 Logic to create chain for: Join dataframe(s) if necessary, then group by the state names, count the number of heads born in each state and filter for states with at least 3 heads born. 
 
-When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
+Use the following tools: {tool_names}.
 
-1. **Exact Column Names**: Use original names for columns when selecting (e.g., ["first_name", "last_name"] for "first name and last name").
-2. **Counting**: Use count(*) for counts. e.g ["count(*)"] for questions like "How many/number of records are there?"
-3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with column names. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(column_name)"] for "average pet age" where `column_name` is the column name.
-4. **Multiple Columns**: Combine column names clearly. e.g. ["column_name1", "sum(column_name2)"] for names and total bonus.
-5. **Joining Columns**: Prefix joined columns with table names (e.g., df2.column_name). e.g., ["column_name1", "sum(df3.column_name2)"] for "singer names and sum of song sales if joining another df on df3".
-
-You have access to the following tools: {tool_names}.
-
-{retrieved_data}
+{finegrained_table_summaries}
 
 Always think step by step.Begin!"""
 
@@ -79,17 +70,9 @@ Logic to create chain for: We first need to select the appropriate dataframe(s),
 Example: What are the names of the states where at least 3 heads were born?
 Logic to create chain for: We first need to select the appropriate dataframe(s), join dataframe(s) if necessary, then group by the state names, count the number of heads born in each state and filter for states with at least 3 heads born.
 
-When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
+Use the following tools: {tool_names}.
 
-1. **Exact Column Names**: Use original names for columns when selecting (e.g., ["first_name", "last_name"] for "first name and last name").
-2. **Counting**: Use count(*) for counts. e.g ["count(*)"] for questions like "How many/number of records are there?"
-3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with column names. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(column_name)"] for "average pet age" where `column_name` is the column name.
-4. **Multiple Columns**: Combine column names clearly. e.g. ["column_name1", "sum(column_name2)"] for names and total bonus.
-5. **Joining Columns**: Prefix joined columns with table names (e.g., df2.column_name). e.g., ["column_name1", "sum(df3.column_name2)"] for "singer names and sum of song sales if joining another df on df3".
-
-You have access to the following tools: {tool_names}.
-
-{retrieved_data}
+{finegrained_table_summaries}
 
 Always think step by step.Begin!"""
 
@@ -111,9 +94,9 @@ Logic to create chain for: We first need to select the appropriate dataframe(s),
 Example: What are the airline codes for american airlines
 Logic to create chain for: We first need to select the appropriate dataframe(s), join dataframe(s) if necessary, then filter for airline codes for american airlines.
 
-You have access to the following tools: {tool_names}.
+Use the following tools: {tool_names}.
 
-{retrieved_data}
+{finegrained_table_summaries}
 
 Always think step by step.Begin!"""
 
@@ -135,9 +118,9 @@ Logic to create chain for: We first need to select the appropriate dataframe(s),
 Example: What are the airline codes for american airlines
 Logic to create chain for: We first need to select the appropriate dataframe(s), join dataframe(s) if necessary, then filter for airline codes for american airlines.
 
-You have access to the following tools: {tool_names}.
+Use the following tools: {tool_names}.
 
-{retrieved_data}
+{finegrained_table_summaries}
 
 Always think step by step.Begin!"""
 
@@ -159,15 +142,9 @@ Logic to create chain for: We first need to select the appropriate dataframe(s),
 Example: what is the population of the largest state that borders texas
 Logic to create chain for: We first need to select the appropriate dataframe(s), join dataframe(s) if necessary, then filter for states that border texas, then select the population column, then find the state with the largest population.
 
-When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
+Use the following tools: {tool_names}.
 
-1. **Exact Column Names**: Use original names for columns when selecting (e.g., ["first_name", "last_name"] for "first name and last name").
-2. **Counting**: Use count(table_name.column_name) for counts. e.g ["count(table_name.column_name)"] for questions like "How many/number of records are there?" where `table_name` is the actual table_name and `column_name` is the column_name.
-3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with table_name.column_name. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(table_name.column_name)"] for "average pet age" where `table_name` is the actual table_name and `column_name` is the column_name.
-
-You have access to the following tools: {tool_names}.
-
-{retrieved_data}
+{finegrained_table_summaries}
 
 Always think step by step.Begin!"""
 
@@ -190,14 +167,37 @@ Logic to create chain for: We first need to select the appropriate dataframe(s),
 Example: what is the population of the largest state that borders texas
 Logic to create chain for: We first need to select the appropriate dataframe(s), join dataframe(s) if necessary, then filter for states that border texas, then select the population column, then find the state with the largest population.
 
-When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
+Use the following tools: {tool_names}.
+
+{finegrained_table_summaries}
+
+Always think step by step.Begin!"""
+
+
+# SQL-style column naming conventions, prepended to {finegrained_table_summaries} when enabled.
+spider_column_naming_conventions = """When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
+
+1. **Exact Column Names**: Use original names for columns when selecting (e.g., ["first_name", "last_name"] for "first name and last name").
+2. **Counting**: Use count(*) for counts. e.g ["count(*)"] for questions like "How many/number of records are there?"
+3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with column names. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(column_name)"] for "average pet age" where `column_name` is the column name.
+4. **Multiple Columns**: Combine column names clearly. e.g. ["column_name1", "sum(column_name2)"] for names and total bonus.
+5. **Joining Columns**: Prefix joined columns with table names (e.g., df2.column_name). e.g., ["column_name1", "sum(df3.column_name2)"] for "singer names and sum of song sales if joining another df on df3"."""
+
+geoq_column_naming_conventions = """When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
 
 1. **Exact Column Names**: Use original names for columns when selecting (e.g., ["first_name", "last_name"] for "first name and last name").
 2. **Counting**: Use count(table_name.column_name) for counts. e.g ["count(table_name.column_name)"] for questions like "How many/number of records are there?" where `table_name` is the actual table_name and `column_name` is the column_name.
-3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with table_name.column_name. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(table_name.column_name)"] for "average pet age" where `table_name` is the actual table_name and `column_name` is the column_name.
+3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with table_name.column_name. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(table_name.column_name)"] for "average pet age" where `table_name` is the actual table_name and `column_name` is the column_name."""
 
-You have access to the following tools: {tool_names}.
+atis_column_naming_conventions = """When generating resulting column names for the final dataframe using the final_structured_output tool, always follow these SQL-style naming conventions to ensure clarity and consistency:
 
-{retrieved_data}
+1. **Exact Column Names**: Use original names for columns when selecting (e.g., ["first_name", "last_name"] for "first name and last name").
+2. **Counting**: Use count(table_name.column_name) for counts. e.g ["count(table_name.column_name)"] for questions like "How many/number of records are there?" where `table_name` is the actual table_name and `column_name` is the column_name.
+3. **Aggregate Functions**: Use only SQL-standard aggregate function (`max`, `min`, `avg`, `sum`)  with table_name.column_name. Avoid non-SQL names like `mean`, use `avg` instead! e.g. ["avg(table_name.column_name)"] for "average pet age" where `table_name` is the actual table_name and `column_name` is the column_name."""
 
-Always think step by step.Begin!"""
+
+column_naming_conventions = {
+    'spider': spider_column_naming_conventions,
+    'atis': atis_column_naming_conventions,
+    'geoq': geoq_column_naming_conventions,
+}

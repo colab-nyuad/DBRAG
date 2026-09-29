@@ -42,6 +42,7 @@ from utils.prompt import (
     spider_prompt_without_selection,
     atis_prompt_without_selection,
     geoq_prompt_without_selection,
+    column_naming_conventions,
 )
 from utils.dbrag_utils import (
     build_table_from_retrieved_row_values,
@@ -376,8 +377,11 @@ def process_question(i: int, data: dict, total_docs: int, functions_and_input: d
     _thread_local.df_dic = create_df_dic(df_list)
     local_ctx['df_list'] = df_list
 
-    # Get retrieved data (using the appropriate retrieval function)
-    retrieved_data_str = local_ctx['get_retrieved_data'](local_ctx['query_embeddings'][i], table_names, table_ids, total_docs, local_ctx)
+    # Get fine-grained table summaries (using the appropriate retrieval function)
+    finegrained_table_summaries = local_ctx['get_retrieved_data'](local_ctx['query_embeddings'][i], table_names, table_ids, total_docs, local_ctx)
+    naming_conventions = column_naming_conventions[local_ctx['dataset']]
+    if local_ctx['naming_conventions'] and naming_conventions:
+        finegrained_table_summaries = f"{naming_conventions}\n\n{finegrained_table_summaries}"
 
     # Create prompt (using langchain’s ChatPromptTemplate)
     prompt_template = ChatPromptTemplate.from_messages([
@@ -386,9 +390,12 @@ def process_question(i: int, data: dict, total_docs: int, functions_and_input: d
     ])
     prompt_template = prompt_template.partial(num_dfs=len(df_list))
     prompt_template = prompt_template.partial(tool_names=", ".join([t.name for t in tools]))
-    prompt_template = prompt_template.partial(retrieved_data=retrieved_data_str)
+    prompt_template = prompt_template.partial(finegrained_table_summaries=finegrained_table_summaries)
 
     text_prompt = prompt_template.format(messages=[])
+    if local_ctx['print_prompt']:
+        print(text_prompt)
+        return i, None, None
     tokenized_prompt = local_ctx['tokenizer'].encode(text_prompt)
     if len(tokenized_prompt) > 16385:
         return i, {
@@ -560,6 +567,9 @@ def parse_arguments():
     parser.add_argument('--sc', type=int, default=5, help='Number of samples per question(self-consistency)')
     parser.add_argument('--max_workers', type=int, default=10, help='Maximum number of workers')
     parser.add_argument('--use_gt_tab_ids', action='store_true', help='Use ground truth table ids')
+    parser.add_argument('--naming_conventions', action=argparse.BooleanOptionalAction, default=True,
+                        help='Append SQL-style column naming conventions to the table summaries (disable with --no-naming_conventions)')
+    parser.add_argument('--print_prompt', action='store_true', help='Print the prompt for the first question and exit without calling the LLM')
     return parser.parse_args()
 
 
@@ -579,6 +589,8 @@ def main():
     functions_and_input['output_dir'] = args.output_dir
     functions_and_input['k'] = args.k
     functions_and_input['use_gt_tab_ids'] = args.use_gt_tab_ids
+    functions_and_input['naming_conventions'] = args.naming_conventions
+    functions_and_input['print_prompt'] = args.print_prompt
 
     # Set up method-specific parameters.
     if args.method == 'read_all':
@@ -609,6 +621,11 @@ def main():
 
     # Initialize the tokenizer.
     functions_and_input['tokenizer'] = tiktoken.encoding_for_model(args.model)
+
+    if args.print_prompt:
+        total_docs = functions_and_input['get_total_docs']()
+        process_question(0, functions_and_input['val_data'][0], total_docs, functions_and_input)
+        return
 
     # Process the data.
     answers, errors = process_all_data(functions_and_input, args.batch_size, args.sc, args.max_workers)
